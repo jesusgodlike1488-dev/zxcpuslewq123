@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "package": "com.pulse.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MixinClientPlayerEntity",
+    "MixinKeyboard",
+    "MixinInGameHud",
+    "MixinGameRenderer",
+    "InputAccessor",
+    "MixinChatScreen",
+    "MixinEntity",
+    "MixinLivingEntity",
+    "MixinKeyboardInput",
+    "MixinTitleScreen",
+    "MixinWorldRenderer"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "pulseclient",
+  "version": "${version}",
+  "name": "PulseClient",
+  "description": "PulseClient — Fabric cheat client for Minecraft 1.21.8",
+  "authors": [ "Pulse" ],
+  "contact": {},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [ "com.pulse.client.PulseClient" ]
+  },
+  "mixins": [ "pulse.mixins.json" ],
+  "depends": {
+    "fabricloader": ">=0.16.10",
+    "minecraft": "~1.21.8",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
