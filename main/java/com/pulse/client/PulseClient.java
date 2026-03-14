@@ -7,6 +7,7 @@ import com.pulse.client.event.EventBus;
 import com.pulse.client.gui.ClickGUI;
 import com.pulse.client.gui.HUD;
 import com.pulse.client.module.ModuleManager;
+import com.pulse.client.render.ShaderRegistry;
 import net.fabricmc.api.ClientModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,10 @@ public class PulseClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         instance       = this;
+
+        // Шейдеры регистрируются ДО загрузки ресурсов — callback будет вызван позже
+        ShaderRegistry.init();
+
         eventBus       = new EventBus();
         moduleManager  = new ModuleManager();
         commandManager = new CommandManager();

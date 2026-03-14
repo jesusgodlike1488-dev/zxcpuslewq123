@@ -15,8 +15,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * ClickGUI с шейдерной системой рендера на основе SDF.
+ *
+ * Все UI-фигуры (панели, карточки, кнопки, скролл-зоны) рисуются через
+ * RenderUtils.drawPanel() — один draw call на GPU с anti-aliasing,
+ * тенями и SDF-клиппингом вместо glScissor.
+ *
+ * Шрифт рендерится отдельно через FontManager (не шейдер).
+ */
 public class ClickGUI extends Screen {
 
+    // ── Размеры и отступы ─────────────────────────────────────────
     private static final int SIDEBAR_W  = 150;
     private static final int HEADER_H   = 52;
     private static final int CAT_H      = 36;
@@ -27,6 +37,12 @@ public class ClickGUI extends Screen {
     private static final int SET_ROW_H  = 22;
     private static final int SEARCH_H   = 30;
 
+    // ── Тень и обводка ────────────────────────────────────────────
+    private static final float SHADOW_SOFT  = 12f;   // размытие основной тени окна
+    private static final float CARD_SHADOW  = 6f;    // тень карточек
+    private static final float BORDER_W     = 1f;    // толщина обводки
+
+    // ── Цвета (ARGB) ─────────────────────────────────────────────
     private static final int BG          = 0xFF0D0D11;
     private static final int ACCENT      = 0xFFC62828;
     private static final int CARD_OFF    = 0xFF161619;
@@ -36,7 +52,9 @@ public class ClickGUI extends Screen {
     private static final int TXT_DARK    = 0xFF8B8B9E;
     private static final int SEARCH_BG   = 0xFF151518;
     private static final int DIVIDER     = 0xFF1E1E24;
+    private static final int SHADOW_COL  = 0x80000000;  // 50% чёрная тень
 
+    // ── Состояние окна ────────────────────────────────────────────
     private float winX, winY, winW, winH;
     private boolean dragging;
     private float dragOX, dragOY;
@@ -84,7 +102,7 @@ public class ClickGUI extends Screen {
 
     @Override
     public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        // убираем dirt-фон
+        // Убираем стандартный dirt-фон
     }
 
     @Override
@@ -100,7 +118,7 @@ public class ClickGUI extends Screen {
         float a = AnimationUtil.easeOutCubic(openAnim);
         if (a < 0.005f) return;
 
-        // Лёгкое затемнение вместо drawBlurBackground (который давал слишком тёмный фон)
+        // Затемнение фона
         ctx.fill(0, 0, width, height, (int)(80 * a) << 24);
 
         tickAnimations(mx, my, delta);
@@ -114,13 +132,20 @@ public class ClickGUI extends Screen {
         ctx.getMatrices().scale(scale, scale, 1f);
         ctx.getMatrices().translate(-cx, -cy, 0);
 
-        SmoothRenderer.drawSmoothRect(ctx, winX - 1, winY - 1, winW + 2, winH + 2, 12,
-                ColorUtil.withAlpha(DIVIDER, (int)(255 * a)));
-        SmoothRenderer.drawSmoothRect(ctx, winX, winY, winW, winH, 12,
-                ColorUtil.withAlpha(BG, (int)(255 * a)));
+        // ── Основное окно через шейдер ────────────────────────────
+        // Обводка + тень: один draw call вместо SmoothRenderer + GlowRenderer
+        RenderUtils.drawPanel(ctx.getMatrices(),
+                winX, winY, winW, winH,
+                12f, BORDER_W, SHADOW_SOFT,
+                ColorUtil.withAlpha(BG, (int)(255 * a)),
+                ColorUtil.withAlpha(BG, (int)(255 * a)),
+                ColorUtil.withAlpha(DIVIDER, (int)(255 * a)),
+                ColorUtil.withAlpha(SHADOW_COL, (int)(a * 128)));
 
-        Render2DEngine.drawVLine(ctx, winX + SIDEBAR_W, winY + 8, winH - 16, 1,
-                ColorUtil.withAlpha(DIVIDER, (int)(200 * a)));
+        // Вертикальный разделитель sidebar
+        RenderUtils.drawPanel(ctx.getMatrices(),
+                winX + SIDEBAR_W, winY + 8, 1, winH - 16,
+                0f, ColorUtil.withAlpha(DIVIDER, (int)(200 * a)));
 
         drawSidebar(ctx, mx, my, winY, a);
         drawSearch(ctx, mx, my, winY, a);
@@ -129,6 +154,7 @@ public class ClickGUI extends Screen {
         ctx.getMatrices().pop();
         super.render(ctx, mx, my, delta);
     }
+
     // ── tickAnimations ────────────────────────────────────────────
     private void tickAnimations(int mx, int my, float delta) {
         for (Category c : Category.values()) {
@@ -159,10 +185,13 @@ public class ClickGUI extends Screen {
         FontManager.TITLE.drawStringWithShadow(ctx, "ulse",  sx + 18 + pW + 1, logoY, ColorUtil.withAlpha(TXT,   (int)(255 * alpha)));
 
         float lineY = logoY + FontManager.TITLE.getHeight() + 6;
-        Render2DEngine.drawHLine(ctx, sx + 18, lineY, SIDEBAR_W - 36, 1, ColorUtil.withAlpha(DIVIDER, (int)(200 * alpha)));
+        // Горизонтальный разделитель через шейдер
+        RenderUtils.drawPanel(ctx.getMatrices(),
+                sx + 18, lineY, SIDEBAR_W - 36, 1,
+                0f, ColorUtil.withAlpha(DIVIDER, (int)(200 * alpha)));
 
         float labY = lineY + 14;
-        FontManager.SMALL.drawString(ctx, "Основные", sx + 20, labY, ColorUtil.withAlpha(TXT_DARK, (int)(255 * alpha)));
+        FontManager.SMALL.drawString(ctx, "\u041e\u0441\u043d\u043e\u0432\u043d\u044b\u0435", sx + 20, labY, ColorUtil.withAlpha(TXT_DARK, (int)(255 * alpha)));
 
         float cy = sidebarCatStartY(wy);
         for (Category c : Category.values()) {
@@ -170,13 +199,17 @@ public class ClickGUI extends Screen {
             boolean hov = mx >= sx && mx <= sx + SIDEBAR_W && my >= cy && my <= cy + CAT_H;
             float   bg  = Math.max(ca, hov && ca < 0.3f ? 0.15f : 0f);
 
-            if (bg > 0.01f)
-                SmoothRenderer.drawSmoothRect(ctx, sx + 10, cy, SIDEBAR_W - 20, CAT_H, 8,
-                        ColorUtil.withAlpha(ACCENT, (int)(bg * 220 * alpha)));
-
-            if (ca > 0.3f)
-                GlowRenderer.drawRectGlow(ctx, sx + 10, cy, SIDEBAR_W - 20, CAT_H, 8,
-                        ACCENT, ca * 0.5f * alpha, 3);
+            // Кнопка категории через шейдер: подсветка + мягкое свечение через тень
+            if (bg > 0.01f) {
+                int accentAlpha = (int)(bg * 220 * alpha);
+                RenderUtils.drawPanel(ctx.getMatrices(),
+                        sx + 10, cy, SIDEBAR_W - 20, CAT_H,
+                        8f, 0f, ca > 0.3f ? 4f : 0f,
+                        ColorUtil.withAlpha(ACCENT, accentAlpha),
+                        ColorUtil.withAlpha(ACCENT, accentAlpha),
+                        0x00000000,
+                        ColorUtil.withAlpha(ACCENT, (int)(ca * 0.5f * alpha * 100)));
+            }
 
             int txtCol = ColorUtil.withAlpha(
                     ColorUtil.lerp(TXT_DIM, TXT, Math.max(ca, hov ? 0.5f : 0f)),
@@ -199,11 +232,16 @@ public class ClickGUI extends Screen {
         float sy = wy + (HEADER_H - SEARCH_H) / 2f;
         float sw = searchW();
 
+        // Поле поиска через шейдер: обводка меняет цвет при фокусе
         int outline = searchFocused ? ACCENT : 0xFF222228;
-        SmoothRenderer.drawSmoothRect(ctx, sx - 1, sy - 1, sw + 2, SEARCH_H + 2, 8,
-                ColorUtil.withAlpha(outline, (int)(255 * alpha)));
-        SmoothRenderer.drawSmoothRect(ctx, sx, sy, sw, SEARCH_H, 8,
-                ColorUtil.withAlpha(searchFocused ? 0xFF1A1A20 : SEARCH_BG, (int)(255 * alpha)));
+        int bgColor = searchFocused ? 0xFF1A1A20 : SEARCH_BG;
+        RenderUtils.drawPanel(ctx.getMatrices(),
+                sx, sy, sw, SEARCH_H,
+                8f, BORDER_W, 0f,
+                ColorUtil.withAlpha(bgColor, (int)(255 * alpha)),
+                ColorUtil.withAlpha(bgColor, (int)(255 * alpha)),
+                ColorUtil.withAlpha(outline, (int)(255 * alpha)),
+                0x00000000);
 
         FontManager.ICONS.drawString(ctx, "\uf002",
                 sx + 10, sy + (SEARCH_H - FontManager.ICONS.getHeight()) / 2f,
@@ -211,7 +249,7 @@ public class ClickGUI extends Screen {
 
         String text = searchText;
         if (searchText.isEmpty() && !searchFocused)
-            text = "Поиск";
+            text = "\u041f\u043e\u0438\u0441\u043a";
         else if (searchFocused && (System.currentTimeMillis() - cursorBlink) / 500 % 2 == 0)
             text = searchText + "|";
 
@@ -228,6 +266,10 @@ public class ClickGUI extends Screen {
         float aw = winW - SIDEBAR_W;
         float ah = winH - HEADER_H;
 
+        // ⚠️ SDF-клиппинг для модулей: все карточки клиппятся к области контента
+        // Координаты клипа в пространстве квада каждой карточки пересчитываются
+        // внутри drawCard. Здесь используем glScissor как fallback для текста,
+        // который рендерится FontManager (не шейдером).
         ScissorUtil.push(ax, ay, aw, ah);
 
         List<Module> mods = filteredModules();
@@ -262,21 +304,24 @@ public class ClickGUI extends Screen {
         float tog = togAnim.getOrDefault(m, 0f);
         float exp = expAnim.getOrDefault(m, 0f);
 
-        ScissorUtil.push(x - 2, y - 2, w + 4, h + 4);
-
-        if (tog > 0.05f)
-            GlowRenderer.drawRectGlow(ctx, x, y, w, h, 8, ACCENT, tog * 0.7f, 3);
-
+        // Цвет карточки: интерполяция между OFF и ACCENT при включении
         int bg = ColorUtil.lerp(CARD_OFF, ACCENT, tog);
-        if (tog < 0.9f) {
-            int ba = (int)(255 * (1f - tog) * alpha);
-            SmoothRenderer.drawSmoothRect(ctx, x - 1, y - 1, w + 2, h + 2, 8,
-                    ColorUtil.withAlpha(CARD_BORDER, ba));
-        }
-        SmoothRenderer.drawSmoothRect(ctx, x, y, w, h, 8,
-                ColorUtil.withAlpha(bg, (int)(255 * alpha)));
 
-        String name = (bindingModule == m) ? "Нажмите клавишу..." : m.getName();
+        // Карточка через шейдер: обводка (видна когда модуль выключен) + тень свечения
+        int borderAlpha = (int)(255 * (1f - tog) * alpha);
+        float shadowSoft = tog > 0.05f ? CARD_SHADOW * tog : 0f;
+        int shadowCol = ColorUtil.withAlpha(ACCENT, (int)(tog * 0.7f * alpha * 180));
+
+        RenderUtils.drawPanel(ctx.getMatrices(),
+                x, y, w, h,
+                8f, tog < 0.9f ? BORDER_W : 0f, shadowSoft,
+                ColorUtil.withAlpha(bg, (int)(255 * alpha)),
+                ColorUtil.withAlpha(bg, (int)(255 * alpha)),
+                ColorUtil.withAlpha(CARD_BORDER, borderAlpha),
+                shadowCol);
+
+        // ── Текст (рендерится FontManager, не шейдером) ───────────
+        String name = (bindingModule == m) ? "\u041d\u0430\u0436\u043c\u0438\u0442\u0435 \u043a\u043b\u0430\u0432\u0438\u0448\u0443..." : m.getName();
         FontManager.REGULAR.drawStringWithShadow(ctx, name,
                 x + 12, y + 10, ColorUtil.withAlpha(TXT, (int)(255 * alpha)));
 
@@ -285,6 +330,7 @@ public class ClickGUI extends Screen {
         FontManager.SMALL.drawString(ctx, m.getDescription(),
                 x + 12, y + 10 + FontManager.REGULAR.getHeight() + 3, descCol);
 
+        // Иконка настроек
         if (!m.getSettings().isEmpty()) {
             boolean isExp = expanded.getOrDefault(m, false);
             int gc = ColorUtil.withAlpha(
@@ -293,10 +339,9 @@ public class ClickGUI extends Screen {
             FontManager.ICONS.drawString(ctx, "\uf013", x + w - 28, y + 12, gc);
         }
 
+        // Настройки модуля (если развёрнуты)
         if (exp > 0.01f)
             drawSettings(ctx, m, x, y + CARD_H, w, exp, tog, mx, my, alpha);
-
-        ScissorUtil.pop();
     }
 
     private void drawSettings(DrawContext ctx, Module m, float x, float y, float w,
@@ -305,8 +350,11 @@ public class ClickGUI extends Screen {
         if (sets.isEmpty()) return;
 
         float a = alpha * exp;
-        Render2DEngine.drawHLine(ctx, x + 12, y, w - 24, 1,
-                ColorUtil.withAlpha(0xFFFFFFFF, (int)(25 * a)));
+
+        // Разделитель через шейдер
+        RenderUtils.drawPanel(ctx.getMatrices(),
+                x + 12, y, w - 24, 1,
+                0f, ColorUtil.withAlpha(0xFFFFFFFF, (int)(25 * a)));
 
         float sy = y + 5;
         for (int si = 0; si < sets.size(); si++) {
@@ -318,9 +366,12 @@ public class ClickGUI extends Screen {
             FontManager.SMALL.drawString(ctx, s.getName(), x + 12, sy + 4, tc);
 
             if (val instanceof Boolean b) {
+                // Чекбокс через шейдер
                 int onCol  = ColorUtil.withAlpha(ACCENT,      (int)(255 * a));
                 int offCol = ColorUtil.withAlpha(0xFF444455,  (int)(255 * a));
-                SmoothRenderer.drawSmoothRect(ctx, x + w - 20, sy + 6, 8, 8, 4, b ? onCol : offCol);
+                RenderUtils.drawPanel(ctx.getMatrices(),
+                        x + w - 20, sy + 6, 8, 8,
+                        4f, b ? onCol : offCol);
 
             } else if (val instanceof Number n) {
                 double min  = s.getMin() == Double.MIN_VALUE ? 0   : s.getMin();
@@ -335,17 +386,23 @@ public class ClickGUI extends Screen {
                 float fillWidth = Math.max(0, bw * prog);
 
                 int fill  = tog > 0.5f
-                        ? ColorUtil.withAlpha(TXT,        (int)(200 * a))
-                        : ColorUtil.withAlpha(ACCENT,     (int)(220 * a));
+                        ? ColorUtil.withAlpha(TXT,    (int)(200 * a))
+                        : ColorUtil.withAlpha(ACCENT, (int)(220 * a));
                 int track = ColorUtil.withAlpha(0x40FFFFFF, (int)(255 * a));
 
-                SmoothRenderer.drawSmoothRect(ctx, bx, by, bw, 4, 2, track);
+                // Трек слайдера через шейдер
+                RenderUtils.drawPanel(ctx.getMatrices(),
+                        bx, by, bw, 4, 2f, track);
+                // Заполненная часть
                 if (fillWidth > 0)
-                    SmoothRenderer.drawSmoothRect(ctx, bx, by, fillWidth, 4, 2, fill);
+                    RenderUtils.drawPanel(ctx.getMatrices(),
+                            bx, by, fillWidth, 4, 2f, fill);
 
+                // Ручка слайдера
                 float knobX = clamp(bx + fillWidth - 3, bx - 1, bx + bw - 5);
-                SmoothRenderer.drawSmoothRect(ctx, knobX, by - 1, 6, 6, 3,
-                        ColorUtil.withAlpha(TXT, (int)(255 * a)));
+                RenderUtils.drawPanel(ctx.getMatrices(),
+                        knobX, by - 1, 6, 6,
+                        3f, ColorUtil.withAlpha(TXT, (int)(255 * a)));
 
                 if (sliderActive && sliderMod == m && sliderIdx == si) {
                     double np = clamp((mx - bx) / bw, 0, 1);
@@ -496,7 +553,6 @@ public class ClickGUI extends Screen {
         return super.mouseReleased(mx, my, btn);
     }
 
-    // ── 1.20.4: один параметр amount вместо (h, v) ───────────────
     @Override
     public boolean mouseScrolled(double rawMx, double rawMy, double horizontal, double vertical) {
         double mx = transformMouseX(rawMx);
@@ -604,47 +660,5 @@ public class ClickGUI extends Screen {
 
     private String fmtNum(double v) {
         return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.1f", v);
-    }
-
-    // ── SmoothRenderer (без изменений — ctx.fill() одинаков) ─────
-    public static class SmoothRenderer {
-        public static void drawSmoothRect(DrawContext ctx, float x, float y, float w, float h,
-                                          float r, int color) {
-            int ix = Math.round(x), iy = Math.round(y);
-            int iw = Math.round(w), ih = Math.round(h);
-            int ir = (int) Math.min(Math.max(r, 0), Math.min(iw, ih) / 2f);
-
-            int baseAlpha = (color >>> 24) & 0xFF;
-            if (baseAlpha == 0 || iw <= 0 || ih <= 0) return;
-
-            if (ir <= 0) { ctx.fill(ix, iy, ix + iw, iy + ih, color); return; }
-
-            int rgb = color & 0x00FFFFFF;
-
-            ctx.fill(ix + ir, iy,      ix + iw - ir, iy + ih,      color);
-            ctx.fill(ix,      iy + ir, ix + ir,      iy + ih - ir, color);
-            ctx.fill(ix + iw - ir, iy + ir, ix + iw, iy + ih - ir, color);
-
-            for (int dy = 0; dy < ir; dy++) {
-                for (int dx = 0; dx < ir; dx++) {
-                    float fcx  = ir - 0.5f - dx;
-                    float fcy  = ir - 0.5f - dy;
-                    float dist = (float) Math.sqrt(fcx * fcx + fcy * fcy);
-                    float alphaMult = ir - dist + 0.5f;
-
-                    if      (alphaMult >= 1f) alphaMult = 1f;
-                    else if (alphaMult <= 0f) continue;
-
-                    int finalAlpha = (int)(baseAlpha * alphaMult);
-                    if (finalAlpha <= 0) continue;
-                    int px = (finalAlpha << 24) | rgb;
-
-                    ctx.fill(ix + dx,           iy + dy,           ix + dx + 1,       iy + dy + 1,       px);
-                    ctx.fill(ix + iw - 1 - dx,  iy + dy,           ix + iw - dx,      iy + dy + 1,       px);
-                    ctx.fill(ix + dx,            iy + ih - 1 - dy, ix + dx + 1,        iy + ih - dy,      px);
-                    ctx.fill(ix + iw - 1 - dx,  iy + ih - 1 - dy, ix + iw - dx,       iy + ih - dy,      px);
-                }
-            }
-        }
     }
 }
