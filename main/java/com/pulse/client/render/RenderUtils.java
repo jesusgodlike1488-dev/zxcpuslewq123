@@ -60,8 +60,8 @@ public class RenderUtils {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
 
-        // ⚠️ MC 1.20.4: setShader принимает ShaderProgram напрямую (не Supplier)
-        RenderSystem.setShader(shader);
+        // ⚠️ MC 1.20.4: setShader принимает Supplier<ShaderProgram>, не объект напрямую
+        RenderSystem.setShader(() -> shader);
 
         // ── Передача uniform-ов ──────────────────────────────────────
         // ⚠️ Все uniform-ы передаются ПОСЛЕ setShader — GameRenderer сбрасывает их
@@ -87,22 +87,22 @@ public class RenderUtils {
 
         Matrix4f matrix = matrices.peek().getPositionMatrix();
 
-        // ⚠️ MC 1.20.4: Tessellator.getInstance() → begin() → вершины → end()
-        // VertexFormats.POSITION_TEXTURE = Position (vec3) + UV0 (vec2)
-        BufferBuilder buf = Tessellator.getInstance().begin(
-                VertexFormat.DrawMode.QUADS,
-                VertexFormats.POSITION_TEXTURE
-        );
+        // ⚠️ MC 1.20.4: Tessellator → getBuffer() → begin() → вершины → end()+draw
+        Tessellator tessellator = Tessellator.getInstance();
+        BufferBuilder buf = tessellator.getBuffer();
+        buf.begin(VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE);
 
         // UV (0,0) → (1,1): шейдер сам пересчитает в пиксели через totalSize
         // Порядок вершин: TL → BL → BR → TR (стандарт MC для QUADS)
-        buf.vertex(matrix, qx,      qy,      0).texture(0f, 0f);
-        buf.vertex(matrix, qx,      qy + qh, 0).texture(0f, 1f);
-        buf.vertex(matrix, qx + qw, qy + qh, 0).texture(1f, 1f);
-        buf.vertex(matrix, qx + qw, qy,      0).texture(1f, 0f);
+        // ⚠️ MC 1.20.4: vertex() возвращает VertexConsumer, next() завершает вершину
+        buf.vertex(matrix, qx,      qy,      0).texture(0f, 0f).next();
+        buf.vertex(matrix, qx,      qy + qh, 0).texture(0f, 1f).next();
+        buf.vertex(matrix, qx + qw, qy + qh, 0).texture(1f, 1f).next();
+        buf.vertex(matrix, qx + qw, qy,      0).texture(1f, 0f).next();
 
-        // ⚠️ MC 1.20.4: BufferRenderer.drawWithGlobalProgram() использует текущий setShader
-        BufferRenderer.drawWithGlobalProgram(buf.end());
+        // ⚠️ MC 1.20.4: tessellator.draw() внутренне вызывает buf.end() + отрисовку
+        // с текущим шейдером установленным через RenderSystem.setShader()
+        tessellator.draw();
 
         RenderSystem.disableBlend();
     }
