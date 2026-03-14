@@ -215,7 +215,7 @@ public class TargetHud extends Module {
      * Получает максимальное HP с трекингом.
      */
     private float getMaxHealth(LivingEntity entity) {
-        float attrMax = (float) entity.getAttributeValue(EntityAttributes.MAX_HEALTH);
+        float attrMax = (float) entity.getAttributeValue(EntityAttributes.GENERIC_MAX_HEALTH);
         float currentHp = getHealth(entity);
 
         // Запоминаем максимальное наблюдаемое значение

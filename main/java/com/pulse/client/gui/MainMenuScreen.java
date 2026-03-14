@@ -10,10 +10,6 @@ import net.minecraft.client.gui.screen.option.OptionsScreen;
 import net.minecraft.client.gui.screen.world.SelectWorldScreen;
 import net.minecraft.text.Text;
 
-/**
- * Modern dark main menu for PulseClient.
- * Replaces the vanilla TitleScreen.
- */
 public class MainMenuScreen extends Screen {
 
     // ── star animation ─────────────────────────────────────────────────── //
@@ -23,11 +19,11 @@ public class MainMenuScreen extends Screen {
     // ── button definitions ─────────────────────────────────────────────── //
     private record Btn(String label, String sub, int accent) {}
     private static final Btn[] BUTTONS = {
-            new Btn("Одиночная игра",  "Singleplayer",    0xFF1E90FF),
-            new Btn("Мультиплеер",     "Multiplayer",      0xFF1E90FF),
-            new Btn("Аккаунты",        "Account Manager",  0xFF7B2FBE),
-            new Btn("Настройки",       "Options",          0xFF2A6A2A),
-            new Btn("Выход",           "Quit",             0xFF8B2222),
+            new Btn("Одиночная игра",  "Singleplayer",   0xFF1E90FF),
+            new Btn("Мультиплеер",     "Multiplayer",    0xFF1E90FF),
+            new Btn("Аккаунты",        "Account Manager",0xFF7B2FBE),
+            new Btn("Настройки",       "Options",        0xFF2A6A2A),
+            new Btn("Выход",           "Quit",           0xFF8B2222),
     };
 
     private int     hoveredBtn = -1;
@@ -35,8 +31,6 @@ public class MainMenuScreen extends Screen {
 
     public MainMenuScreen() {
         super(Text.literal("PulseClient"));
-
-        // Загружаем шрифты
         FontManager.init();
 
         starX     = new float[STAR_COUNT];
@@ -52,8 +46,13 @@ public class MainMenuScreen extends Screen {
         }
     }
 
-    // ─────────────────────────────── render ─────────────────────────────── //
+    // ── убираем dirt-фон ─────────────────────────────────────────────────//
+    @Override
+    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        // намеренно пусто — наш фон рисуется в render()
+    }
 
+    // ─────────────────────────────── render ─────────────────────────────── //
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
         // Background
@@ -89,22 +88,20 @@ public class MainMenuScreen extends Screen {
         int lx = 40;
         int ly = height / 2 - 70;
 
-        // "Pulse" + "Client"
-        String pulse  = "Pulse";
-        String cl     = "Client";
-        int    pw     = FontManager.TITLE.getStringWidth(pulse);
-        FontManager.TITLE.drawStringWithShadow(ctx, pulse,  lx, ly, 0xFF1E90FF);
+        String pulse = "Pulse";
+        String cl    = "Client";
+        int    pw    = FontManager.TITLE.getStringWidth(pulse);
+        FontManager.TITLE.drawStringWithShadow(ctx, pulse, lx, ly, 0xFF1E90FF);
         FontManager.TITLE.drawStringWithShadow(ctx, cl, lx + pw + 3, ly, 0xFFFFFFFF);
 
         int lineY = ly + FontManager.TITLE.getHeight() + 3;
         ctx.fill(lx, lineY, lx + pw + 3 + FontManager.TITLE.getStringWidth(cl), lineY + 1, 0xFF1E90FF);
 
         int dy = lineY + 10;
-        FontManager.SMALL.drawString(ctx, "Fabric клиент для Minecraft 1.21.8", lx, dy, 0xFF888888);
+        FontManager.SMALL.drawString(ctx, "Fabric клиент для Minecraft 1.20.4", lx, dy, 0xFF888888);
         dy += FontManager.SMALL.getHeight() + 5;
         FontManager.SMALL.drawString(ctx, "v" + PulseClient.VERSION + "  •  Right Shift для GUI чит-меню", lx, dy, 0xFF444444);
 
-        // Session box
         if (client != null && client.getSession() != null) {
             String name = client.getSession().getUsername();
             int bx = lx, by = dy + FontManager.SMALL.getHeight() + 14;
@@ -133,25 +130,19 @@ public class MainMenuScreen extends Screen {
                     ? Math.min(1f, btnAnim[i] + 0.12f * delta)
                     : Math.max(0f, btnAnim[i] - 0.12f * delta);
 
-            float t    = btnAnim[i];
-            int   bx   = (int)(startX - t * 5);
-            int   acc  = BUTTONS[i].accent();
+            float t   = btnAnim[i];
+            int   bx  = (int)(startX - t * 5);
+            int   acc = BUTTONS[i].accent();
 
-            // Shadow
             BlurUtil.drawRoundedRect(ctx, bx + 2, by + 2, btnW, btnH, 5f, 0x44000000);
-            // Body
             BlurUtil.drawRoundedRect(ctx, bx, by, btnW, btnH, 5f, blend(0xFF0E0E18, acc, t * 0.2f));
-            // Border
             BlurUtil.drawRoundedRectOutline(ctx, bx, by, btnW, btnH, 5f, 1f, blend(0xFF1C1C2C, acc, t * 0.7f));
 
-            // Accent left bar
             if (t > 0.05f) {
                 int aa = (int)(t * 200);
                 ctx.fill(bx, by + 4, bx + 2, by + btnH - 4, (aa << 24) | (acc & 0x00FFFFFF));
             }
 
-            // Text
-            // Правильное вертикальное центрирование обоих строк внутри кнопки
             int totalTextH = FontManager.REGULAR.getHeight() + 4 + FontManager.SMALL.getHeight();
             float ty = by + (btnH - totalTextH) / 2f;
             FontManager.REGULAR.drawString(ctx, BUTTONS[i].label(), bx + 14, ty, 0xFFFFFFFF);
@@ -161,19 +152,19 @@ public class MainMenuScreen extends Screen {
     }
 
     private void renderFooter(DrawContext ctx) {
-        String txt = "Fabric 1.21.8  •  PulseClient " + PulseClient.VERSION;
+        String txt = "Fabric 1.20.4  •  PulseClient " + PulseClient.VERSION;
         FontManager.SMALL.drawCenteredString(ctx, txt, width / 2f, height - 11, 0xFF2A2A3A);
     }
 
     private static int blend(int base, int target, float t) {
-        int ba=(base>>24)&0xFF, br=(base>>16)&0xFF, bg=(base>>8)&0xFF, bb=base&0xFF;
-        int ta=(target>>24)&0xFF, tr=(target>>16)&0xFF, tg=(target>>8)&0xFF, tb=target&0xFF;
+        int ba=(base>>24)&0xFF,  br=(base>>16)&0xFF,  bg=(base>>8)&0xFF,  bb=base&0xFF;
+        int ta=(target>>24)&0xFF,tr=(target>>16)&0xFF,tg=(target>>8)&0xFF,tb=target&0xFF;
         return (lerp(ba,ta,t)<<24)|(lerp(br,tr,t)<<16)|(lerp(bg,tg,t)<<8)|lerp(bb,tb,t);
     }
-    private static int lerp(int a, int b, float t){ return a + (int)((b-a)*t); }
+
+    private static int lerp(int a, int b, float t) { return a + (int)((b - a) * t); }
 
     // ─────────────────────────── events ─────────────────────────────────── //
-
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         if (button != 0 || hoveredBtn < 0) return super.mouseClicked(mx, my, button);

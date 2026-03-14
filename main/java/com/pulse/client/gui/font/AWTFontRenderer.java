@@ -1,8 +1,8 @@
 package com.pulse.client.gui.font;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
@@ -29,12 +29,17 @@ public class AWTFontRenderer {
     private final int atlasWidth  = ATLAS_SIZE;
     private final int atlasHeight = ATLAS_SIZE;
 
+    // Храним пиксели до момента загрузки на GPU
+    private int[] pendingPixels = null;
+    private boolean uploaded = false;
+
     public AWTFontRenderer(Font font, String charsToLoad) {
         this.font = font;
-        generateAtlas(charsToLoad);
+        generateAtlasCPU(charsToLoad); // только CPU, без GL
     }
 
-    private void generateAtlas(String chars) {
+    // ── Шаг 1: генерация атласа на CPU (можно в любом потоке) ───────────────
+    private void generateAtlasCPU(String chars) {
         BufferedImage atlasImage = new BufferedImage(atlasWidth, atlasHeight, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = atlasImage.createGraphics();
 
@@ -65,22 +70,18 @@ public class AWTFontRenderer {
             }
 
             g.drawString(String.valueOf(c), x, y);
-
             glyphs.put(c, new Glyph(x, y - metrics.getAscent(), slotW, h, advance));
             x += slotW;
         }
 
         g.dispose();
 
-        java.awt.font.FontRenderContext frc = new java.awt.font.FontRenderContext(null, true, true);
-        fontHeight = (int) (bigFont.getLineMetrics("Ag", frc).getHeight() / SCALE);
+        java.awt.font.FontRenderContext frc =
+                new java.awt.font.FontRenderContext(null, true, true);
+        fontHeight = (int)(bigFont.getLineMetrics("Ag", frc).getHeight() / SCALE);
 
-        textureId = Identifier.of("pulseclient", "font_atlas_" + instanceCounter++);
-
-        NativeImageBackedTexture texture =
-                new NativeImageBackedTexture("pulse_font", atlasWidth, atlasHeight, false);
-        NativeImage nativeImage = texture.getImage();
-
+        // Конвертируем пиксели в ABGR и сохраняем — без GL!
+        pendingPixels = new int[atlasWidth * atlasHeight];
         for (int py = 0; py < atlasHeight; py++) {
             for (int px = 0; px < atlasWidth; px++) {
                 int argb = atlasImage.getRGB(px, py);
@@ -88,45 +89,78 @@ public class AWTFontRenderer {
                 int r  = (argb >> 16) & 0xFF;
                 int g2 = (argb >>  8) & 0xFF;
                 int b  = (argb      ) & 0xFF;
-                nativeImage.setColorArgb(px, py, (a << 24) | (b << 16) | (g2 << 8) | r);
+                // NativeImage формат ABGR
+                pendingPixels[py * atlasWidth + px] = (a << 24) | (b << 16) | (g2 << 8) | r;
             }
         }
 
+        textureId = new Identifier("pulseclient", "font_atlas_" + instanceCounter++);
+    }
+
+    // ── Шаг 2: загрузка на GPU (только render thread) ────────────────────────
+    private void uploadToGPU() {
+        if (uploaded || pendingPixels == null) return;
+        uploaded = true;
+
+        NativeImage nativeImage = new NativeImage(atlasWidth, atlasHeight, false);
+        for (int py = 0; py < atlasHeight; py++) {
+            for (int px = 0; px < atlasWidth; px++) {
+                nativeImage.setColor(px, py, pendingPixels[py * atlasWidth + px]);
+            }
+        }
+        pendingPixels = null; // освобождаем память
+
+        NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
         texture.upload();
         MinecraftClient.getInstance().getTextureManager().registerTexture(textureId, texture);
 
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        RenderSystem.bindTexture(texture.getGlId());
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
     }
 
+    // ── Рендер ───────────────────────────────────────────────────────────────
     public void drawString(DrawContext ctx, String text, float x, float y, int color) {
         if (text == null || text.isEmpty() || textureId == null) return;
 
-        ctx.getMatrices().pushMatrix();
-        ctx.getMatrices().scale(1f / SCALE, 1f / SCALE);
+        // Загружаем текстуру при первом рендере (гарантированно render thread)
+        if (!uploaded) uploadToGPU();
+
+        ctx.getMatrices().push();
+        ctx.getMatrices().scale(1f / SCALE, 1f / SCALE, 1f);
 
         float currentX = x * SCALE;
         float currentY = y * SCALE;
 
-        // Optimized: charAt() loop avoids toCharArray() allocation
+        int alpha = (color >> 24) & 0xFF;
+        if (alpha == 0) alpha = 255; // если альфа не задана — непрозрачный
+
+        float a = alpha / 255f;
+        float r = ((color >> 16) & 0xFF) / 255f;
+        float g = ((color >>  8) & 0xFF) / 255f;
+        float b = (color         & 0xFF) / 255f;
+
+        RenderSystem.enableBlend();
+        RenderSystem.setShaderColor(r, g, b, a);
+
         for (int i = 0, len = text.length(); i < len; i++) {
             Glyph glyph = glyphs.get(text.charAt(i));
             if (glyph == null) continue;
 
             ctx.drawTexture(
-                    RenderPipelines.GUI_TEXTURED,
                     textureId,
                     Math.round(currentX), Math.round(currentY),
                     (float) glyph.x, (float) glyph.y,
                     glyph.slotW, glyph.height,
-                    atlasWidth, atlasHeight,
-                    color
+                    atlasWidth, atlasHeight
             );
 
             currentX += glyph.advance;
         }
 
-        ctx.getMatrices().popMatrix();
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        RenderSystem.disableBlend();
+        ctx.getMatrices().pop();
     }
 
     public void drawStringWithShadow(DrawContext ctx, String text, float x, float y, int color) {
@@ -144,7 +178,6 @@ public class AWTFontRenderer {
 
     public int getStringWidth(String text) { return getWidth(text); }
 
-    // Optimized: charAt() loop — no char[] heap allocation per call
     public int getWidth(String text) {
         if (text == null || text.isEmpty()) return 0;
         int width = 0;
@@ -158,11 +191,7 @@ public class AWTFontRenderer {
     public int getHeight() { return fontHeight; }
 
     private static class Glyph {
-        final int x, y;
-        final int slotW;
-        final int height;
-        final int advance;
-
+        final int x, y, slotW, height, advance;
         Glyph(int x, int y, int slotW, int height, int advance) {
             this.x = x; this.y = y;
             this.slotW = slotW; this.height = height;

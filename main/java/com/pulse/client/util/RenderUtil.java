@@ -5,6 +5,8 @@ import net.minecraft.client.render.*;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.Vec3d;
+import org.joml.Matrix3f;
+import org.joml.Matrix4f;
 
 public class RenderUtil {
 
@@ -29,10 +31,12 @@ public class RenderUtil {
                 mc.getBufferBuilders().getEntityVertexConsumers();
         VertexConsumer lines = immediate.getBuffer(RenderLayer.getLines());
 
-        // normal() принимает MatrixStack.Entry, а не отдельную Matrix3f
-        MatrixStack.Entry entry = matrices.peek();
-        lines.vertex(entry, ex * 0, ey * 0, ez * 0).color(r, g, b, a).normal(entry, 0f, 1f, 0f);
-        lines.vertex(entry, ex,     ey,     ez    ).color(r, g, b, a).normal(entry, 0f, 1f, 0f);
+        Matrix4f posMat  = matrices.peek().getPositionMatrix();
+        Matrix3f normMat = matrices.peek().getNormalMatrix();
+
+        // Начало трейсера — центр экрана (0,0,0 в camera space)
+        lines.vertex(posMat, 0f, 0f, 0f).color(r, g, b, a).normal(normMat, 0f, 1f, 0f);
+        lines.vertex(posMat, ex, ey, ez).color(r, g, b, a).normal(normMat, 0f, 1f, 0f);
 
         immediate.draw(RenderLayer.getLines());
     }
@@ -60,35 +64,39 @@ public class RenderUtil {
                 mc.getBufferBuilders().getEntityVertexConsumers();
         VertexConsumer lines = immediate.getBuffer(RenderLayer.getLines());
 
-        MatrixStack.Entry e = matrices.peek();
+        Matrix4f posMat  = matrices.peek().getPositionMatrix();
+        Matrix3f normMat = matrices.peek().getNormalMatrix();
 
         // bottom
-        addLine(lines, e, ex-hw, ey,    ez-hw, ex+hw, ey,    ez-hw, r,gv,b,a);
-        addLine(lines, e, ex+hw, ey,    ez-hw, ex+hw, ey,    ez+hw, r,gv,b,a);
-        addLine(lines, e, ex+hw, ey,    ez+hw, ex-hw, ey,    ez+hw, r,gv,b,a);
-        addLine(lines, e, ex-hw, ey,    ez+hw, ex-hw, ey,    ez-hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex-hw, ey,    ez-hw, ex+hw, ey,    ez-hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex+hw, ey,    ez-hw, ex+hw, ey,    ez+hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex+hw, ey,    ez+hw, ex-hw, ey,    ez+hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex-hw, ey,    ez+hw, ex-hw, ey,    ez-hw, r,gv,b,a);
         // top
-        addLine(lines, e, ex-hw, ey+ht, ez-hw, ex+hw, ey+ht, ez-hw, r,gv,b,a);
-        addLine(lines, e, ex+hw, ey+ht, ez-hw, ex+hw, ey+ht, ez+hw, r,gv,b,a);
-        addLine(lines, e, ex+hw, ey+ht, ez+hw, ex-hw, ey+ht, ez+hw, r,gv,b,a);
-        addLine(lines, e, ex-hw, ey+ht, ez+hw, ex-hw, ey+ht, ez-hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex-hw, ey+ht, ez-hw, ex+hw, ey+ht, ez-hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex+hw, ey+ht, ez-hw, ex+hw, ey+ht, ez+hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex+hw, ey+ht, ez+hw, ex-hw, ey+ht, ez+hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex-hw, ey+ht, ez+hw, ex-hw, ey+ht, ez-hw, r,gv,b,a);
         // verticals
-        addLine(lines, e, ex-hw, ey,    ez-hw, ex-hw, ey+ht, ez-hw, r,gv,b,a);
-        addLine(lines, e, ex+hw, ey,    ez-hw, ex+hw, ey+ht, ez-hw, r,gv,b,a);
-        addLine(lines, e, ex+hw, ey,    ez+hw, ex+hw, ey+ht, ez+hw, r,gv,b,a);
-        addLine(lines, e, ex-hw, ey,    ez+hw, ex-hw, ey+ht, ez+hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex-hw, ey,    ez-hw, ex-hw, ey+ht, ez-hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex+hw, ey,    ez-hw, ex+hw, ey+ht, ez-hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex+hw, ey,    ez+hw, ex+hw, ey+ht, ez+hw, r,gv,b,a);
+        addLine(lines, posMat, normMat, ex-hw, ey,    ez+hw, ex-hw, ey+ht, ez+hw, r,gv,b,a);
 
         immediate.draw(RenderLayer.getLines());
     }
 
-    private static void addLine(VertexConsumer vc, MatrixStack.Entry e,
+    private static void addLine(VertexConsumer vc,
+                                Matrix4f posMat, Matrix3f normMat,
                                 float x1, float y1, float z1,
                                 float x2, float y2, float z2,
-                                float r, float g, float b, float a) {
-        float dx = x2-x1, dy = y2-y1, dz = z2-z1;
+                                float r,  float g,  float b, float a) {
+        float dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
         float len = (float) Math.sqrt(dx*dx + dy*dy + dz*dz);
         if (len < 0.001f) len = 1f;
-        vc.vertex(e, x1, y1, z1).color(r, g, b, a).normal(e, dx/len, dy/len, dz/len);
-        vc.vertex(e, x2, y2, z2).color(r, g, b, a).normal(e, dx/len, dy/len, dz/len);
+        float nx = dx/len, ny = dy/len, nz = dz/len;
+
+        vc.vertex(posMat, x1, y1, z1).color(r, g, b, a).normal(normMat, nx, ny, nz);
+        vc.vertex(posMat, x2, y2, z2).color(r, g, b, a).normal(normMat, nx, ny, nz);
     }
 }

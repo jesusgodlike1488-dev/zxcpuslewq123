@@ -16,10 +16,11 @@ import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.scoreboard.*;
-import net.minecraft.scoreboard.number.StyledNumberFormat;
-import net.minecraft.text.MutableText;
+import net.minecraft.registry.Registries;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScoreboardObjective;
+import net.minecraft.scoreboard.ScoreboardScore;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
@@ -29,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Оптимизированные Nametags.
+ * Оптимизированные Nametags для 1.20.1.
  * Без выделения лишней памяти в цикле рендера (GC-friendly).
  */
 public class Nametags extends Module {
@@ -67,9 +68,9 @@ public class Nametags extends Module {
     private static final int C_BUFF     = 0xFF77BBEE;
     private static final int C_DEBUFF   = 0xFFEE6666;
 
-    // Кеш для эффектов (O(1) поиск, вместо простыни if-else)
-    private static final Map<RegistryEntry<StatusEffect>, String> EFFECT_NAMES = new HashMap<>();
-    private static final Map<RegistryEntry<StatusEffect>, Integer> EFFECT_COLORS = new HashMap<>();
+    // Кеш для эффектов (O(1) поиск)
+    private static final Map<StatusEffect, String> EFFECT_NAMES = new HashMap<>();
+    private static final Map<StatusEffect, Integer> EFFECT_COLORS = new HashMap<>();
 
     static {
         // Баффы
@@ -102,7 +103,7 @@ public class Nametags extends Module {
         addEffect(StatusEffects.LEVITATION, "Lev", C_DEBUFF);
     }
 
-    private static void addEffect(RegistryEntry<StatusEffect> effect, String name, int color) {
+    private static void addEffect(StatusEffect effect, String name, int color) {
         EFFECT_NAMES.put(effect, name);
         EFFECT_COLORS.put(effect, color);
     }
@@ -151,10 +152,6 @@ public class Nametags extends Module {
         float baseY   = screenPos[1];
         float sc      = scale.getValue().floatValue();
 
-        // ═══════════════════════════════════════════
-        //  ПРОХОД 1: ЗАМЕРЫ (Без создания объектов)
-        // ═══════════════════════════════════════════
-
         String name = player.getName().getString();
         int nameW = font.getStringWidth(name);
 
@@ -173,7 +170,7 @@ public class Nametags extends Module {
         int gapW = hpW > 0 ? font.getStringWidth("  ") : 0;
         int line1W = nameW + gapW + hpW;
 
-        // Броня (считаем кол-во непустых слотов)
+        // Броня
         int armorCount = 0;
         if (showArmor.getValue()) {
             for (EquipmentSlot slot : ARMOR_SLOTS) {
@@ -182,7 +179,7 @@ public class Nametags extends Module {
         }
         int armorRowW = armorCount == 0 ? 0 : armorCount * ITEM_ICON + (armorCount - 1) * ICON_GAP;
 
-        // Эффекты (считаем ширину на лету)
+        // Эффекты
         int effectsW = 0;
         if (showEffects.getValue()) {
             for (StatusEffectInstance effect : player.getStatusEffects()) {
@@ -204,10 +201,7 @@ public class Nametags extends Module {
             }
         }
 
-        // ═══════════════════════════════════════════
-        //  РАСЧЁТ ГАБАРИТОВ ПАНЕЛИ
-        // ═══════════════════════════════════════════
-
+        // Габариты панели
         int contentW = line1W;
         if (showHealth.getValue()) contentW = Math.max(contentW, 50);
         if (armorRowW > 0) contentW = Math.max(contentW, armorRowW);
@@ -216,7 +210,7 @@ public class Nametags extends Module {
 
         int panelW = contentW + PAD_X * 2;
 
-        int contentH = font.getHeight(); // строка 1
+        int contentH = font.getHeight();
         if (showHealth.getValue()) contentH += ROW_GAP + BAR_HEIGHT;
         if (armorCount > 0) contentH += ROW_GAP + ITEM_ICON;
         if (effectsW > 0) contentH += ROW_GAP + font.getHeight();
@@ -224,12 +218,9 @@ public class Nametags extends Module {
 
         int panelH = contentH + PAD_Y * 2;
 
-        // ═══════════════════════════════════════════
-        //  ПРОХОД 2: ОТРИСОВКА
-        // ═══════════════════════════════════════════
-
-        ctx.getMatrices().pushMatrix();
-        ctx.getMatrices().scale(sc, sc);
+        // Отрисовка
+        ctx.getMatrices().push();
+        ctx.getMatrices().scale(sc, sc, 1f);
 
         float adjCX = centerX / sc;
         float adjBY = baseY / sc;
@@ -240,14 +231,12 @@ public class Nametags extends Module {
         int ix = (int) panelX;
         int iy = (int) panelY;
 
-        // Фон и акцент
         ctx.fill(ix, iy, ix + panelW, iy + panelH, C_BG);
         ctx.fill(ix, iy, ix + panelW, iy + 1, C_ACCENT);
 
         float drawY = panelY + PAD_Y;
         float ccx = panelX + panelW / 2f;
 
-        // ─── Строка 1: Ник + HP
         float lineX = ccx - line1W / 2f;
         font.drawStringWithShadow(ctx, name, lineX, drawY, C_NAME);
         lineX += nameW;
@@ -258,7 +247,6 @@ public class Nametags extends Module {
         }
         drawY += font.getHeight();
 
-        // ─── Строка 2: HP бар
         if (showHealth.getValue()) {
             drawY += ROW_GAP;
             int barW = panelW - PAD_X * 2;
@@ -272,7 +260,6 @@ public class Nametags extends Module {
             drawY += BAR_HEIGHT;
         }
 
-        // ─── Строка 3: Броня
         if (armorCount > 0) {
             drawY += ROW_GAP;
             float armorX = ccx - armorRowW / 2f;
@@ -287,7 +274,6 @@ public class Nametags extends Module {
             drawY += ITEM_ICON;
         }
 
-        // ─── Строка 4: Эффекты
         if (effectsW > 0) {
             drawY += ROW_GAP;
             float effX = ccx - effectsW / 2f;
@@ -300,26 +286,21 @@ public class Nametags extends Module {
             drawY += font.getHeight();
         }
 
-        // ─── Строка 5: Предмет
         if (itemW > 0) {
             drawY += ROW_GAP;
             font.drawCenteredString(ctx, itemName, ccx, drawY, C_ITEM);
         }
 
-        ctx.getMatrices().popMatrix();
+        ctx.getMatrices().pop();
     }
-
-    // ═══════════════════════════════════════════
-    //  ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (Оптимизированные)
-    // ═══════════════════════════════════════════
 
     private float getHealth(PlayerEntity player) {
         float sbHp = getScoreboardHealth(player);
-        return sbHp > 0 ? sbHp : player.getHealth();
+        return sbHp > 0 ? sbHp : player.getHealth() + player.getAbsorptionAmount();
     }
 
     private float getMaxHealth(PlayerEntity player) {
-        float attrMax = (float) player.getAttributeValue(EntityAttributes.MAX_HEALTH);
+        float attrMax = (float) player.getAttributeValue(EntityAttributes.GENERIC_MAX_HEALTH);
         return Math.max(attrMax, Math.max(getHealth(player), 1f));
     }
 
@@ -327,35 +308,16 @@ public class Nametags extends Module {
         try {
             if (mc.world == null) return -1f;
             Scoreboard sb = mc.world.getScoreboard();
-            ScoreboardObjective obj = sb.getObjectiveForSlot(ScoreboardDisplaySlot.BELOW_NAME);
+
+            // В 1.20.4 используется Enum вместо цифр
+            ScoreboardObjective obj = sb.getObjectiveForSlot(net.minecraft.scoreboard.ScoreboardDisplaySlot.BELOW_NAME);
             if (obj == null) return -1f;
 
-            ReadableScoreboardScore score = sb.getScore(player, obj);
+            // В 1.20.4 игрок сам является ScoreHolder'ом, имя получать не нужно
+            net.minecraft.scoreboard.ReadableScoreboardScore score = sb.getScore(player, obj);
             if (score == null) return -1f;
 
-            MutableText text = ReadableScoreboardScore.getFormattedScore(
-                    score, obj.getNumberFormatOr(StyledNumberFormat.EMPTY));
-
-            String raw = text.getString();
-
-            // Быстрый парсинг вместо медленного Regex (replaceAll)
-            StringBuilder sbDigits = new StringBuilder();
-            boolean dotFound = false;
-
-            for (int i = 0; i < raw.length(); i++) {
-                char c = raw.charAt(i);
-                if (c >= '0' && c <= '9') {
-                    sbDigits.append(c);
-                } else if (c == '.' && !dotFound) {
-                    sbDigits.append(c);
-                    dotFound = true;
-                }
-            }
-
-            if (sbDigits.isEmpty()) return -1f;
-
-            float hp = Float.parseFloat(sbDigits.toString());
-            return hp > 0 ? hp : -1f;
+            return score.getScore();
         } catch (Exception e) {
             return -1f;
         }
@@ -363,7 +325,7 @@ public class Nametags extends Module {
 
     private String formatHp(float hp) {
         if (hp == (int) hp) return (int) hp + "HP";
-        return String.format("%.1fHP", hp);
+        return String.format("%.1fHP", hp).replace(",", ".");
     }
 
     private static int getHealthColor(float ratio) {
@@ -400,8 +362,9 @@ public class Nametags extends Module {
 
     private String getFallbackEffectName(StatusEffectInstance effect) {
         try {
-            String path = effect.getEffectType().getKey()
-                    .map(key -> key.getValue().getPath()).orElse("?");
+            Identifier id = Registries.STATUS_EFFECT.getId(effect.getEffectType());
+            if (id == null) return "?";
+            String path = id.getPath();
             return path.length() > 4 ? path.substring(0, 4) : path;
         } catch (Exception e) { return "?"; }
     }

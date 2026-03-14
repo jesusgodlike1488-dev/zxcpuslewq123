@@ -1,0 +1,175 @@
+package com.pulse.client.render;
+
+import net.minecraft.client.gui.DrawContext;
+
+/**
+ * БЫСТРЫЙ 2D рендер — Fabric 1.21.8.
+ * Scanline-подход: 1 fill() на строку угла, НЕ попиксельно.
+ * Сглаживание: 1 полупрозрачный пиксель на краю каждой строки.
+ */
+public class Render2DEngine {
+
+    // ══════════════════════════════════════════════════════════════
+    //  СКРУГЛЁННЫЙ ПРЯМОУГОЛЬНИК (БЫСТРЫЙ)
+    // ══════════════════════════════════════════════════════════════
+
+    public static void drawRoundedRect(DrawContext ctx, float x, float y, float w, float h, float r, int color) {
+        int ix = Math.round(x), iy = Math.round(y);
+        int iw = Math.round(w), ih = Math.round(h);
+        int ir = (int) Math.min(Math.max(r, 0), Math.min(iw, ih) / 2f);
+        if (iw <= 0 || ih <= 0 || (color >>> 24) == 0) return;
+
+        if (ir <= 0) {
+            ctx.fill(ix, iy, ix + iw, iy + ih, color);
+            return;
+        }
+
+        int rgb = color & 0x00FFFFFF;
+        int alpha = (color >>> 24);
+
+        // Центральный крест
+        ctx.fill(ix + ir, iy, ix + iw - ir, iy + ih, color);
+        ctx.fill(ix, iy + ir, ix + ir, iy + ih - ir, color);
+        ctx.fill(ix + iw - ir, iy + ir, ix + iw, iy + ih - ir, color);
+
+        // 4 угла — scanline (1 fill + 2 AA пикселя на строку для гладкости)
+        float fir = ir + 0.5f; // Немного расширяем для плавности
+        for (int dy = 0; dy < ir; dy++) {
+            double exact = Math.sqrt(fir * fir - (double) dy * dy);
+            int idx = (int) exact;
+            float frac = (float) (exact - idx);
+
+            // 1-й AA пиксель (ближний к фигуре, ярче)
+            int aa1 = (int) (alpha * Math.min(1f, frac + 0.3f) * 0.65f);
+            // 2-й AA пиксель (дальний, тусклее)
+            int aa2 = (int) (alpha * frac * 0.25f);
+
+            // Top-left
+            if (idx > 0) ctx.fill(ix + ir - idx, iy + dy, ix + ir, iy + dy + 1, color);
+            if (aa1 > 1) ctx.fill(ix + ir - idx - 1, iy + dy, ix + ir - idx, iy + dy + 1, (aa1 << 24) | rgb);
+            if (aa2 > 1) ctx.fill(ix + ir - idx - 2, iy + dy, ix + ir - idx - 1, iy + dy + 1, (aa2 << 24) | rgb);
+
+            // Top-right
+            if (idx > 0) ctx.fill(ix + iw - ir, iy + dy, ix + iw - ir + idx, iy + dy + 1, color);
+            if (aa1 > 1) ctx.fill(ix + iw - ir + idx, iy + dy, ix + iw - ir + idx + 1, iy + dy + 1, (aa1 << 24) | rgb);
+            if (aa2 > 1) ctx.fill(ix + iw - ir + idx + 1, iy + dy, ix + iw - ir + idx + 2, iy + dy + 1, (aa2 << 24) | rgb);
+
+            // Bottom-left
+            if (idx > 0) ctx.fill(ix + ir - idx, iy + ih - 1 - dy, ix + ir, iy + ih - dy, color);
+            if (aa1 > 1) ctx.fill(ix + ir - idx - 1, iy + ih - 1 - dy, ix + ir - idx, iy + ih - dy, (aa1 << 24) | rgb);
+            if (aa2 > 1) ctx.fill(ix + ir - idx - 2, iy + ih - 1 - dy, ix + ir - idx - 1, iy + ih - dy, (aa2 << 24) | rgb);
+
+            // Bottom-right
+            if (idx > 0) ctx.fill(ix + iw - ir, iy + ih - 1 - dy, ix + iw - ir + idx, iy + ih - dy, color);
+            if (aa1 > 1) ctx.fill(ix + iw - ir + idx, iy + ih - 1 - dy, ix + iw - ir + idx + 1, iy + ih - dy, (aa1 << 24) | rgb);
+            if (aa2 > 1) ctx.fill(ix + iw - ir + idx + 1, iy + ih - 1 - dy, ix + iw - ir + idx + 2, iy + ih - dy, (aa2 << 24) | rgb);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ОБВОДКА
+    // ══════════════════════════════════════════════════════════════
+
+    public static void drawRoundedRectOutline(DrawContext ctx, float x, float y, float w, float h,
+                                               float r, float lw, int color) {
+        int ix = Math.round(x), iy = Math.round(y);
+        int iw = Math.round(w), ih = Math.round(h);
+        int ilw = Math.max(1, Math.round(lw));
+        int ir = (int) Math.min(Math.max(r, 0), Math.min(iw, ih) / 2f);
+        if (iw <= 0 || ih <= 0 || (color >>> 24) == 0) return;
+
+        // Прямые стороны
+        ctx.fill(ix + ir, iy, ix + iw - ir, iy + ilw, color);
+        ctx.fill(ix + ir, iy + ih - ilw, ix + iw - ir, iy + ih, color);
+        ctx.fill(ix, iy + ir, ix + ilw, iy + ih - ir, color);
+        ctx.fill(ix + iw - ilw, iy + ir, ix + iw, iy + ih - ir, color);
+
+        if (ir <= 0) return;
+
+        // Углы обводки — scanline
+        int rO2 = ir * ir;
+        int rI = Math.max(0, ir - ilw);
+        int rI2 = rI * rI;
+
+        for (int dy = 0; dy < ir; dy++) {
+            int dy2 = dy * dy;
+            int dxO = (int) Math.sqrt(Math.max(0, rO2 - dy2));
+            int dxI = (int) Math.sqrt(Math.max(0, rI2 - dy2));
+            if (dxO <= dxI) continue;
+
+            // TL
+            ctx.fill(ix + ir - dxO, iy + dy, ix + ir - dxI, iy + dy + 1, color);
+            // TR
+            ctx.fill(ix + iw - ir + dxI, iy + dy, ix + iw - ir + dxO, iy + dy + 1, color);
+            // BL
+            ctx.fill(ix + ir - dxO, iy + ih - 1 - dy, ix + ir - dxI, iy + ih - dy, color);
+            // BR
+            ctx.fill(ix + iw - ir + dxI, iy + ih - 1 - dy, ix + iw - ir + dxO, iy + ih - dy, color);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  КРУГ (SCANLINE — БЫСТРЫЙ И ГЛАДКИЙ)
+    // ══════════════════════════════════════════════════════════════
+
+    public static void drawCircle(DrawContext ctx, float cx, float cy, float radius, int color) {
+        if (radius <= 0 || (color >>> 24) == 0) return;
+        int rgb = color & 0x00FFFFFF;
+        int alpha = (color >>> 24);
+        int icx = Math.round(cx), icy = Math.round(cy);
+        int ir = (int) Math.ceil(radius);
+        float fr = radius + 0.5f; // Расширяем для плавности
+
+        for (int dy = -ir; dy <= ir; dy++) {
+            double exact = Math.sqrt(Math.max(0, fr * fr - (double) dy * dy));
+            int idx = (int) exact;
+            float frac = (float) (exact - idx);
+
+            if (idx > 0) {
+                ctx.fill(icx - idx, icy + dy, icx + idx, icy + dy + 1, color);
+            }
+            // 1-й AA (ярче)
+            int aa1 = (int) (alpha * Math.min(1f, frac + 0.3f) * 0.6f);
+            // 2-й AA (тусклее)
+            int aa2 = (int) (alpha * frac * 0.2f);
+            if (aa1 > 1) {
+                int c1 = (aa1 << 24) | rgb;
+                ctx.fill(icx - idx - 1, icy + dy, icx - idx, icy + dy + 1, c1);
+                ctx.fill(icx + idx, icy + dy, icx + idx + 1, icy + dy + 1, c1);
+            }
+            if (aa2 > 1) {
+                int c2 = (aa2 << 24) | rgb;
+                ctx.fill(icx - idx - 2, icy + dy, icx - idx - 1, icy + dy + 1, c2);
+                ctx.fill(icx + idx + 1, icy + dy, icx + idx + 2, icy + dy + 1, c2);
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  ПРОСТЫЕ ФИГУРЫ
+    // ══════════════════════════════════════════════════════════════
+
+    public static void drawHLine(DrawContext ctx, float x, float y, float w, float t, int c) {
+        ctx.fill(Math.round(x), Math.round(y), Math.round(x + w), Math.round(y + t), c);
+    }
+
+    public static void drawVLine(DrawContext ctx, float x, float y, float h, float t, int c) {
+        ctx.fill(Math.round(x), Math.round(y), Math.round(x + t), Math.round(y + h), c);
+    }
+
+    public static void drawBlurBackground(DrawContext ctx, int sw, int sh, float alpha) {
+        int a = (int) (180 * alpha);
+        ctx.fill(0, 0, sw, sh, ColorUtil.pack(3, 3, 8, a));
+    }
+
+    public static void drawGradientRect(DrawContext ctx, float x, float y, float w, float h, int top, int bot) {
+        ctx.fillGradient(Math.round(x), Math.round(y), Math.round(x + w), Math.round(y + h), top, bot);
+    }
+
+    public static void drawProgressBar(DrawContext ctx, float x, float y, float w, float h,
+                                        float r, float prog, int track, int fill) {
+        prog = Math.max(0, Math.min(1, prog));
+        drawRoundedRect(ctx, x, y, w, h, r, track);
+        if (prog > 0.01f) drawRoundedRect(ctx, x, y, Math.max(h, w * prog), h, r, fill);
+    }
+}

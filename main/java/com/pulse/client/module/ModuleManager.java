@@ -3,6 +3,7 @@ package com.pulse.client.module;
 import com.pulse.client.module.modules.combat.KillAura;
 import com.pulse.client.module.modules.combat.Reach;
 import com.pulse.client.module.modules.combat.TriggerBot;
+import com.pulse.client.module.modules.movement.GuiMove;
 import com.pulse.client.module.modules.movement.NoSlow;
 import com.pulse.client.module.modules.movement.Sprint;
 import com.pulse.client.module.modules.movement.Step;
@@ -37,6 +38,7 @@ public class ModuleManager {
 
         // Movement
         register(new Sprint());
+        register(new GuiMove());
         register(new NoSlow());
         register(new Step());
 

@@ -72,6 +72,10 @@ public class AccountManagerScreen extends Screen {
 
         super.render(ctx, mx, my, delta);
     }
+    @Override
+    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+        // убираем dirt
+    }
 
     private void renderAddField(DrawContext ctx, int mx, int my, int px, int py, int pw) {
         int fieldW = pw - 80;

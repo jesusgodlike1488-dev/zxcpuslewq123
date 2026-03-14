@@ -7,13 +7,11 @@
     "MixinKeyboard",
     "MixinInGameHud",
     "MixinGameRenderer",
-    "InputAccessor",
     "MixinChatScreen",
     "MixinEntity",
     "MixinLivingEntity",
     "MixinKeyboardInput",
-    "MixinTitleScreen",
-    "MixinWorldRenderer"
+    "MixinTitleScreen"
   ],
   "injectors": {
     "defaultRequire": 1

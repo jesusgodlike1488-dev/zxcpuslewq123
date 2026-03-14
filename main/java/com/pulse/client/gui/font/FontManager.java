@@ -17,8 +17,10 @@ public class FontManager {
                     "abcdefghijklmnopqrstuvwxyz" +
                     "0123456789!@#$%^&*()-_=+[{]}\\|;:'\",<.>/?`~ ";
 
-    // Юникод-символы иконок из FontAwesome (шестеренка, пользователь, прицел и тд)
-    private static final String ICON_CHARS = "\uf013 \uf007 \uf05b \uf11b \uf0c9";
+    // Юникод-символы иконок из FontAwesome
+    // \uf013=gear \uf007=user \uf05b=crosshairs \uf11b=gamepad \uf0c9=bars
+    // \uf002=search \uf06e=eye \uf0ad=wrench \uf015=home \uf0a0=hdd
+    private static final String ICON_CHARS = "\uf013\uf007\uf05b\uf11b\uf0c9\uf002\uf06e\uf0ad\uf015\uf0a0 ";
 
     public static void init() {
         TITLE   = loadFont("/assets/pulseclient/font/nunito_semibold.ttf", 26f, TEXT_CHARS);
