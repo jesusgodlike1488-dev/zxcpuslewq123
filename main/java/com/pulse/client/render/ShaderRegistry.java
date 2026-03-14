@@ -28,7 +28,8 @@ public class ShaderRegistry {
         CoreShaderRegistrationCallback.EVENT.register(context -> {
             // ⚠️ MC 1.20.4: Identifier должен указывать на JSON в
             // assets/<namespace>/shaders/core/<path>.json
-            Identifier shaderId = Identifier.of("pulseclient", "core/ui_sdf");
+            // ⚠️ MC 1.20.4: Identifier.of() может не существовать — используем конструктор
+            Identifier shaderId = new Identifier("pulseclient", "core/ui_sdf");
 
             context.register(
                     shaderId,
